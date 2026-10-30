@@ -5,7 +5,7 @@ Automatically delete media according to configurable rules. Works with any media
 
 ## Installation
 
-In Jellyfin, open **Dashboard → Plugins → Repositories**, add `https://raw.githubusercontent.com/adunavolgyi/jellyfin-plugin-media-cleaner/gh-pages/manifest.json`, then install **Media Cleaner** from the catalog. Remove the original Media Cleaner repository first: this fork uses the same plugin id.
+In Jellyfin, open **Dashboard → Plugins → Repositories**, add `https://raw.githubusercontent.com/adunavolgyi/jellyfin-plugin-media-cleaner/refs/heads/gh-pages/manifest.json`, then install **Media Cleaner** from the catalog. Remove the original Media Cleaner repository first: this fork uses the same plugin id.
 
 ## Configuration
 
