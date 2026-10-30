@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Activity;
 using MediaBrowser.Model.Globalization;
@@ -57,7 +59,8 @@ public class MediaCleanupTask : IScheduledTask
         IActivityManager activityManager,
         ILocalizationManager localization,
         IFileSystem fileSystem,
-        LeavingSoonCoordinator leavingSoonCoordinator)
+        LeavingSoonCoordinator leavingSoonCoordinator,
+        IHttpClientFactory httpClientFactory)
         : this(
             loggerFactory.CreateLogger<MediaCleanupTask>(),
             localization,
@@ -68,7 +71,8 @@ public class MediaCleanupTask : IScheduledTask
                 libraryManager,
                 userDataManager),
             new CleanupPlanner(new SystemClock(), new JellyfinPathMatcher(fileSystem), new JellyfinExtraFileProbe()),
-            new JellyfinMutationAdapter(loggerFactory.CreateLogger<JellyfinMutationAdapter>(), libraryManager, activityManager, leavingSoonCoordinator),
+            new JellyfinMutationAdapter(loggerFactory.CreateLogger<JellyfinMutationAdapter>(), libraryManager, activityManager, leavingSoonCoordinator,
+                new ArrSyncClient(loggerFactory.CreateLogger<ArrSyncClient>(), httpClientFactory.CreateClient(NamedClient.Default))),
             leavingSoonCoordinator)
     {
     }

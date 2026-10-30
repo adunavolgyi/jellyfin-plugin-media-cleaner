@@ -5,7 +5,7 @@
     <PluginOverview Condition="'$(PluginOverview)' == ''">Rule-based media cleanup</PluginOverview>
     <PluginDescription Condition="'$(PluginDescription)' == ''">Keep your storage clean without hassle.&#x0A;Works with all media types.</PluginDescription>
     <PluginCategory Condition="'$(PluginCategory)' == ''">General</PluginCategory>
-    <PluginOwner Condition="'$(PluginOwner)' == ''">shemanaev</PluginOwner>
+    <PluginOwner Condition="'$(PluginOwner)' == ''">adunavolgyi</PluginOwner>
     <PluginArtifacts Condition="'$(PluginArtifacts)' == ''">MediaCleaner.dll;MediaCleaner.Core.dll</PluginArtifacts>
     <JellyfinProfile Condition="'$(JellyfinProfile)' == ''">12.1</JellyfinProfile>
     <JellyfinTargetFramework Condition="'$(JellyfinTargetFramework)' == ''">net10.0</JellyfinTargetFramework>

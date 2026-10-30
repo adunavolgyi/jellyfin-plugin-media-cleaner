@@ -54,6 +54,13 @@ internal sealed class DeletionCascadePlanner(IExtraFileProbe extraFileProbe)
                 yield break;
             }
 
+            if ((catalogItem.EpisodeIds ?? []).Any(id => !byId.ContainsKey(id)))
+            {
+                CleanupAudit.AddCascadeBlocked(audit, item, $"delete blocked because not every season episode is known");
+
+                yield break;
+            }
+
             foreach (var episodeId in catalogItem.EpisodeIds ?? [])
             {
                 if (byId.TryGetValue(episodeId, out var episode))

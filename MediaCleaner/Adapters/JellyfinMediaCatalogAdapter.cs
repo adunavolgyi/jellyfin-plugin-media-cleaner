@@ -94,6 +94,15 @@ internal sealed class JellyfinMediaCatalogAdapter(
                 cancellationToken.ThrowIfCancellationRequested();
                 SourceItemInspectionCount++;
 
+                // A season without real episodes has nothing to delete.
+                if (source.CoreKind == MediaItemKind.Season
+                    && item is Season emptySeason
+                    && snapshot.GetSeasonEpisodes(emptySeason).Count == 0)
+                {
+                    itemIndex++;
+                    continue;
+                }
+
                 DateTime? lastPlayedDate = null;
                 if (source.SortBy == ItemSortBy.DatePlayed)
                 {
@@ -164,10 +173,12 @@ internal sealed class JellyfinMediaCatalogAdapter(
         occurrenceCount = 0;
         foreach (var source in GetEnabledKinds(policy))
         {
-            var sourceUsers = source.Rule.Trigger.Kind is CleanupRuleTriggerKind.Played or CleanupRuleTriggerKind.NotPlayed
+            var sourceUsers = source.Rule.Trigger.Kind is CleanupRuleTriggerKind.Played or CleanupRuleTriggerKind.NotPlayed or CleanupRuleTriggerKind.InProgress
                 ? FilterUsersForRule(users, source.Rule)
                 : users.Take(1).ToList();
-            var sortBy = source.Rule.Trigger.Kind == CleanupRuleTriggerKind.Played
+            // Season user data has no useful DatePlayed, so seasons are always enumerated by DateCreated.
+            var usesPlayedDate = source.Rule.Trigger.Kind == CleanupRuleTriggerKind.Played && source.CoreKind != MediaItemKind.Season;
+            var sortBy = usesPlayedDate
                 ? ItemSortBy.DatePlayed
                 : ItemSortBy.DateCreated;
 
@@ -181,7 +192,7 @@ internal sealed class JellyfinMediaCatalogAdapter(
                     plans.Add(plan);
                 }
 
-                if (source.Rule.Trigger.Kind == CleanupRuleTriggerKind.Played)
+                if (usesPlayedDate)
                 {
                     plan.IncludePlayedOccurrence(source.Rule.Trigger.CountAsNotPlayedAfter, nowUtc, occurrenceCount);
                 }
@@ -267,6 +278,7 @@ internal sealed class JellyfinMediaCatalogAdapter(
         baseKind = kind switch
         {
             MediaItemKind.Movie => BaseItemKind.Movie,
+            MediaItemKind.Season => BaseItemKind.Season,
             MediaItemKind.Episode => BaseItemKind.Episode,
             MediaItemKind.Video => BaseItemKind.Video,
             MediaItemKind.Audio => BaseItemKind.Audio,
@@ -274,7 +286,7 @@ internal sealed class JellyfinMediaCatalogAdapter(
             _ => default,
         };
 
-        return kind is MediaItemKind.Movie or MediaItemKind.Episode or MediaItemKind.Video or MediaItemKind.Audio or MediaItemKind.AudioBook;
+        return kind is MediaItemKind.Movie or MediaItemKind.Season or MediaItemKind.Episode or MediaItemKind.Video or MediaItemKind.Audio or MediaItemKind.AudioBook;
     }
 
     private void AddItem(
@@ -292,6 +304,16 @@ internal sealed class JellyfinMediaCatalogAdapter(
 
         itemsById[id] = item;
         mediaItems[id] = CreateMediaItem(id, item, kind, snapshot);
+
+        // A season that Season rules can delete must bring all its episodes, however it entered the catalog,
+        // so the deletion cascade (and protection checks) see every episode.
+        if (kind == MediaItemKind.Season && snapshot.NeedsSeasonPlayback && item is Season season)
+        {
+            foreach (var seasonEpisode in snapshot.GetSeasonEpisodes(season))
+            {
+                AddItem(seasonEpisode, MediaItemKind.Episode, snapshot, itemsById, mediaItems);
+            }
+        }
     }
 
     private MediaItem CreateMediaItem(string id, BaseItem item, MediaItemKind kind, SnapshotContext snapshot)
@@ -332,7 +354,9 @@ internal sealed class JellyfinMediaCatalogAdapter(
             Kind: kind,
             Name: item.Name,
             FullName: fullName,
-            DateCreated: item.DateCreated,
+            DateCreated: kind == MediaItemKind.Season && snapshot.NeedsSeasonPlayback && item is Season dateSeason
+                ? snapshot.GetSeasonEpisodes(dateSeason).Select(x => x.DateCreated).Append(item.DateCreated).Max()
+                : item.DateCreated,
             Path: item.Path,
             LocationPath: locationPath,
             Tags: tags,
@@ -365,6 +389,11 @@ internal sealed class JellyfinMediaCatalogAdapter(
         var favoriteSource = snapshot.NeedsFavoriteState
             ? GetFavoriteSource(user, item, data?.IsFavorite ?? false, snapshot)
             : FavoriteSourceKind.None;
+        if (item is Season season && snapshot.NeedsSeasonPlayback)
+        {
+            return CreateSeasonPlaybackState(user, season, favoriteSource, snapshot);
+        }
+
         return new PlaybackState(
             UserId: GetUserId(user),
             LastPlayedDate: data?.LastPlayedDate,
@@ -374,6 +403,56 @@ internal sealed class JellyfinMediaCatalogAdapter(
             UserName: user.Username,
             HasUserData: data is not null,
             FavoriteSource: favoriteSource);
+    }
+
+    // When any Season rule is enabled every catalog season gets aggregated playback, so a season with an
+    // in-progress episode counts as being watched (the safe direction).
+    // A season is "played" only when every episode is, and "partially played" once any episode was played or has a resume position.
+    private static PlaybackState CreateSeasonPlaybackState(
+        JellyfinUser user,
+        Season season,
+        FavoriteSourceKind favoriteSource,
+        SnapshotContext snapshot)
+    {
+        var episodes = snapshot.GetSeasonEpisodes(season);
+        var playedCount = 0;
+        var episodeFavorite = false;
+        var isWatching = false;
+        var hasData = false;
+        DateTime? lastPlayed = null;
+        foreach (var episode in episodes)
+        {
+            if (snapshot.GetUserData(user, episode) is not { } data)
+            {
+                continue;
+            }
+
+            hasData = true;
+            episodeFavorite |= data.IsFavorite;
+            playedCount += data.Played ? 1 : 0;
+            isWatching |= data.PlaybackPositionTicks != 0;
+            if (data.LastPlayedDate is { } playedDate && (lastPlayed is null || playedDate > lastPlayed))
+            {
+                lastPlayed = playedDate;
+            }
+        }
+
+        var isPlayed = episodes.Count > 0 && playedCount == episodes.Count;
+        if (episodeFavorite && favoriteSource == FavoriteSourceKind.None && snapshot.NeedsFavoriteState)
+        {
+            favoriteSource = FavoriteSourceKind.Item;
+        }
+
+        return new PlaybackState(
+            UserId: GetUserId(user),
+            LastPlayedDate: lastPlayed,
+            IsPlayed: isPlayed,
+            IsWatching: isWatching,
+            IsFavorite: favoriteSource != FavoriteSourceKind.None,
+            UserName: user.Username,
+            HasUserData: hasData,
+            FavoriteSource: favoriteSource,
+            IsPartiallyPlayed: !isPlayed && (playedCount > 0 || isWatching));
     }
 
     private void LogNotPlayedCandidate(
@@ -452,7 +531,7 @@ internal sealed class JellyfinMediaCatalogAdapter(
     private static IReadOnlyList<string> GetTags(BaseItem item, SnapshotContext snapshot)
     {
         var itemTags = item.Tags;
-        if ((itemTags is null || !itemTags.Any()) && item is not Episode)
+        if ((itemTags is null || !itemTags.Any()) && item is not (Episode or Season))
         {
             return Array.Empty<string>();
         }
@@ -466,6 +545,14 @@ internal sealed class JellyfinMediaCatalogAdapter(
             }
 
             foreach (var tag in snapshot.GetEpisodeSeries(episode)?.Tags ?? [])
+            {
+                tags.Add(tag);
+            }
+        }
+
+        if (item is Season tagSeason)
+        {
+            foreach (var tag in snapshot.GetSeasonSeries(tagSeason)?.Tags ?? [])
             {
                 tags.Add(tag);
             }
@@ -664,9 +751,11 @@ internal sealed class JellyfinMediaCatalogAdapter(
             var enabledEpisodeRules = enabledRules
                 .Where(rule => rule.Filters.MediaKinds.Contains(MediaItemKind.Episode))
                 .ToList();
-            NeedsSeasonEpisodeIds = enabledEpisodeRules.Any(rule => rule.Filters.DeleteEpisodes is SeriesDeleteKind.Episode or SeriesDeleteKind.Season);
-            NeedsSeriesEpisodeIds = enabledEpisodeRules.Count > 0;
-            NeedsSeriesSeasonIds = enabledEpisodeRules.Count > 0;
+            NeedsSeasonPlayback = enabledRules.Any(rule => rule.Filters.MediaKinds.Contains(MediaItemKind.Season));
+            NeedsSeasonEpisodeIds = NeedsSeasonPlayback
+                || enabledEpisodeRules.Any(rule => rule.Filters.DeleteEpisodes is SeriesDeleteKind.Episode or SeriesDeleteKind.Season);
+            NeedsSeriesEpisodeIds = NeedsSeasonPlayback || enabledEpisodeRules.Count > 0;
+            NeedsSeriesSeasonIds = NeedsSeasonPlayback || enabledEpisodeRules.Count > 0;
             NeedsEpisodeOrderIds = enabledEpisodeRules.Any(rule =>
                 rule.Filters.DeleteEpisodes == SeriesDeleteKind.Episode
                 && rule.Filters.KeepSeriesKind is SeriesKeepKind.First or SeriesKeepKind.Last);
@@ -695,6 +784,8 @@ internal sealed class JellyfinMediaCatalogAdapter(
         public IReadOnlyList<JellyfinUser> Users { get; }
 
         public IReadOnlyList<JellyfinUser> LatestWatchedUsers { get; }
+
+        public bool NeedsSeasonPlayback { get; }
 
         public bool NeedsSeasonEpisodeIds { get; }
 

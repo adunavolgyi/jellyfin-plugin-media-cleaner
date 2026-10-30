@@ -337,7 +337,8 @@ public sealed class LeavingSoonTests : IDisposable
         var created = fixture.Clock.UtcNow.AddDays(-30);
         var season = CreateItem(SeasonId, MediaItemKind.Season, created) with { EpisodeIds = [EpisodeId], SeriesId = SeriesId };
         var series = CreateItem(SeriesId, MediaItemKind.Series, created) with { EpisodeIds = [EpisodeId], SeasonIds = [SeasonId] };
-        var catalog = new CleanupCatalog([], [season, series], new Dictionary<string, BaseItem>(), new Dictionary<string, JellyfinUser>());
+        var episode = CreateItem(EpisodeId, MediaItemKind.Episode, created);
+        var catalog = new CleanupCatalog([], [episode, season, series], new Dictionary<string, BaseItem>(), new Dictionary<string, JellyfinUser>());
         await fixture.Coordinator.PrepareAsync(CreatePolicy(30), catalog, Enabled(), CancellationToken.None);
         fixture.Coordinator.AddProtections(SeriesId, UserId, [new ViewProtectionSeed(EpisodeId, SeriesId, "episode")]);
         fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddDays(20);
@@ -379,7 +380,8 @@ public sealed class LeavingSoonTests : IDisposable
         var created = fixture.Clock.UtcNow.AddDays(-30);
         var season = CreateItem(SeasonId, MediaItemKind.Season, created) with { EpisodeIds = [EpisodeId], SeriesId = SeriesId };
         var series = CreateItem(SeriesId, MediaItemKind.Series, created) with { EpisodeIds = [EpisodeId], SeasonIds = [SeasonId] };
-        var catalog = new CleanupCatalog([], [season, series], new Dictionary<string, BaseItem>(), new Dictionary<string, JellyfinUser>());
+        var episode = CreateItem(EpisodeId, MediaItemKind.Episode, created);
+        var catalog = new CleanupCatalog([], [episode, season, series], new Dictionary<string, BaseItem>(), new Dictionary<string, JellyfinUser>());
         await fixture.Coordinator.PrepareAsync(CreatePolicy(30), catalog, Enabled(), CancellationToken.None);
         var protection = fixture.Coordinator.AddProtections(SeriesId, UserId,
             [new ViewProtectionSeed(EpisodeId, SeriesId, "episode")]).Protections.Single();

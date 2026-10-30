@@ -301,7 +301,7 @@ internal static class TroubleshootingDecisionFormatter
             {
                 builder.Append("; Last played ");
                 AppendTimeHtml(builder, lastPlayed);
-                if (group.Rule is { Trigger.Kind: CleanupRuleTriggerKind.Played } playedRule)
+                if (group.Rule is { Trigger.Kind: CleanupRuleTriggerKind.Played or CleanupRuleTriggerKind.InProgress } playedRule)
                 {
                     var threshold = lastPlayed.AddDays(playedRule.Trigger.Days);
                     builder.Append("; threshold ");
@@ -424,7 +424,7 @@ internal static class TroubleshootingDecisionFormatter
             if (playback.LastPlayedDate is { } lastPlayed)
             {
                 line += $"; Last played {Utc(lastPlayed)}";
-                if (group.Rule is { Trigger.Kind: CleanupRuleTriggerKind.Played } playedRule)
+                if (group.Rule is { Trigger.Kind: CleanupRuleTriggerKind.Played or CleanupRuleTriggerKind.InProgress } playedRule)
                 {
                     line += $"; threshold {ThresholdDistance(evidence, playedRule, lastPlayed.AddDays(playedRule.Trigger.Days))}";
                 }
@@ -460,6 +460,7 @@ internal static class TroubleshootingDecisionFormatter
             CleanupRuleTriggerKind.Played when trigger.PlayedKeepKind == PlayedKeepKind.AllUsers =>
                 $"played by every user in {users} at least {trigger.Days} day(s) ago",
             CleanupRuleTriggerKind.Played => $"played by at least one user in {users} at least {trigger.Days} day(s) ago",
+            CleanupRuleTriggerKind.InProgress => $"started but not finished by at least one user in {users}, with no playback by them in the last {trigger.Days} day(s)",
             CleanupRuleTriggerKind.NotPlayed => $"added at least {trigger.Days} day(s) ago and not played by any user in {users}",
             _ => $"added at least {trigger.Days} day(s) ago regardless of playback",
         };
@@ -564,6 +565,11 @@ internal static class TroubleshootingDecisionFormatter
         if (playback.IsWatching)
         {
             return "currently watching";
+        }
+
+        if (playback.IsPartiallyPlayed)
+        {
+            return "started, not finished";
         }
 
         return playback.IsPlayed ? "played" : "not played";

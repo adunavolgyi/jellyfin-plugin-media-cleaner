@@ -85,17 +85,37 @@ jobs:
         name: Normalize Release Asset Name (${{ matrix.jellyfin-profile }})
         run: cp "${{ steps.jprm.outputs.artifact }}" "artifacts/${{ matrix.jellyfin-profile }}/MediaCleaner-${{ matrix.jellyfin-profile }}.zip"
       -
+        name: Write Manifest Entry (${{ matrix.jellyfin-profile }})
+        shell: pwsh
+        run: |-
+          $yaml = Get-Content -Raw build.yaml
+          function Read-Field($name) { [regex]::Match($yaml, "(?m)^${name}: `"(.*)`"").Groups[1].Value }
+          [pscustomobject]@{
+            profile = '${{ matrix.jellyfin-profile }}'
+            version = Read-Field 'version'
+            targetAbi = Read-Field 'targetAbi'
+            guid = Read-Field 'guid'
+            name = Read-Field 'name'
+            overview = Read-Field 'overview'
+            owner = Read-Field 'owner'
+            category = Read-Field 'category'
+          } | ConvertTo-Json | Set-Content "artifacts/${{ matrix.jellyfin-profile }}/manifest-entry-${{ matrix.jellyfin-profile }}.json"
+      -
         name: Upload Release Asset
         uses: actions/upload-artifact@v4
         with:
           name: release-asset-${{ matrix.jellyfin-profile }}
           retention-days: 1
           if-no-files-found: error
-          path: artifacts/${{ matrix.jellyfin-profile }}/MediaCleaner-${{ matrix.jellyfin-profile }}.zip
+          path: |
+            artifacts/${{ matrix.jellyfin-profile }}/MediaCleaner-${{ matrix.jellyfin-profile }}.zip
+            artifacts/${{ matrix.jellyfin-profile }}/manifest-entry-${{ matrix.jellyfin-profile }}.json
 
   release:
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      contents: write
     steps:
       -
         name: Checkout
@@ -130,3 +150,22 @@ jobs:
           files: |
             checksums.txt
             release-assets/*.zip
+      -
+        name: Publish Jellyfin Repository Manifest
+        shell: pwsh
+        env:
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+          GH_TOKEN: ${{ github.token }}
+        run: |-
+          $remote = "https://x-access-token:$($env:GH_TOKEN)@github.com/${{ github.repository }}.git"
+          git clone --branch gh-pages --single-branch $remote pages
+          if ($LASTEXITCODE -ne 0) {
+            git init -b gh-pages pages
+            git -C pages remote add origin $remote
+          }
+          ./eng/write-manifest.ps1 -AssetsPath release-assets -Tag '${{ github.ref_name }}' -Repository '${{ github.repository }}' -ManifestPath pages/manifest.json -Changelog $env:CHANGELOG
+          git -C pages config user.name "github-actions[bot]"
+          git -C pages config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C pages add manifest.json
+          git -C pages commit -m "Publish manifest for ${{ github.ref_name }}"
+          git -C pages push origin gh-pages

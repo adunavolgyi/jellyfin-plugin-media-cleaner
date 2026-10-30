@@ -75,6 +75,7 @@ public enum ExpiredKind
     Played,
     NotPlayed,
     AddedAge,
+    InProgress,
 }
 
 public enum CleanupRuleTriggerKind
@@ -82,6 +83,7 @@ public enum CleanupRuleTriggerKind
     Played,
     NotPlayed,
     AddedAge,
+    InProgress,
 }
 
 public enum CleanupRuleActionKind
@@ -179,7 +181,8 @@ public readonly record struct PlaybackState(
     bool IsFavorite,
     string? UserName = null,
     bool HasUserData = true,
-    FavoriteSourceKind FavoriteSource = FavoriteSourceKind.None);
+    FavoriteSourceKind FavoriteSource = FavoriteSourceKind.None,
+    bool IsPartiallyPlayed = false);
 
 public sealed record CleanupAuditEvidence(
     DateTime DateCreatedUtc,

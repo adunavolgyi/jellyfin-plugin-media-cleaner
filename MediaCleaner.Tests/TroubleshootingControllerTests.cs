@@ -14,6 +14,16 @@ namespace MediaCleaner.Tests;
 public class TroubleshootingControllerTests
 {
     [Fact]
+    public void RedactSecrets_MasksArrApiKeys()
+    {
+        var xml = "<Radarr><Url>http://r</Url><ApiKey>secret1</ApiKey></Radarr><Seerr><ApiKey /></Seerr>";
+
+        var redacted = TroubleshootingController.RedactSecrets(xml);
+
+        redacted.Should().Contain("<ApiKey>***</ApiKey>").And.NotContain("secret1").And.Contain("<ApiKey />");
+    }
+
+    [Fact]
     public void ReportCache_KeepsMultipleReportsAndUnknownIdsDoNotEvictThem()
     {
         var cache = new TroubleshootingReportCache(TimeSpan.FromMinutes(15), maxReports: 3);

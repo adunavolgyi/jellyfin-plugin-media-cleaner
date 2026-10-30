@@ -1026,6 +1026,115 @@ public class CleanupPlannerTests
             x.Outcome == CleanupAuditOutcome.Skipped);
     }
 
+    [Fact]
+    public void Plan_InProgress_MatchesOnlyPartiallyPlayedSeasons()
+    {
+        var rule = Rule(MediaItemKind.Season, CleanupRuleTriggerKind.InProgress, 0);
+        var partial = Season("partial", "show1", ["e1"]) with { Playback = [InProgressPlayback(Now.AddDays(-1))] };
+        var finished = Season("finished", "show1", ["e2"]) with { Playback = [Playback("u1", Now.AddDays(-1), true)] };
+        var untouched = Season("untouched", "show1", ["e3"]) with { Playback = [Playback("u1", null, false)] };
+
+        var plan = Planner().Plan(new CleanupRequest(Policy(rule), [User("u1")], [partial, finished, untouched], false));
+
+        plan.Decisions.Should().ContainSingle(x => x.Item.Id == "partial" && x.Kind == ExpiredKind.InProgress);
+    }
+
+    [Fact]
+    public void Plan_InProgress_RequiresIdlePeriodAcrossAllIncludedUsers()
+    {
+        var rule = Rule(MediaItemKind.Season, CleanupRuleTriggerKind.InProgress, 30);
+        var idle = Season("idle", "show1", ["e1"]) with { Playback = [InProgressPlayback(Now.AddDays(-40))] };
+        var recentOther = Season("recent", "show1", ["e2"]) with
+        {
+            Playback = [InProgressPlayback(Now.AddDays(-40)), Playback("u2", Now.AddDays(-2), true)],
+        };
+
+        var plan = Planner().Plan(new CleanupRequest(Policy(rule), [User("u1"), User("u2")], [idle, recentOther], false));
+
+        plan.Decisions.Should().ContainSingle(x => x.Item.Id == "idle");
+    }
+
+    [Fact]
+    public void Plan_ProtectedInProgressSeason_KeepsRemainingEpisodesOfThatSeasonOnly()
+    {
+        var protect = Rule(MediaItemKind.Season, CleanupRuleTriggerKind.InProgress, 0) with
+        {
+            Actions = new(CleanupRuleActionKind.Protect, false),
+        };
+        var delete = Rule(MediaItemKind.Episode, CleanupRuleTriggerKind.NotPlayed, 0) with
+        {
+            Filters = Filters(MediaItemKind.Episode) with { DeleteEpisodes = SeriesDeleteKind.Episode },
+        };
+        var s1e1 = Episode("e1", "s1", "show1", Playback("u1", Now.AddDays(-1), true));
+        var s1e2 = Episode("e2", "s1", "show1", Playback("u1", null, false));
+        var s2e1 = Episode("e3", "s2", "show1", Playback("u1", null, false));
+        var season1 = Season("s1", "show1", ["e1", "e2"]) with { Playback = [InProgressPlayback(Now.AddDays(-1))] };
+        var season2 = Season("s2", "show1", ["e3"]) with { Playback = [Playback("u1", null, false)] };
+        var series = Series("show1", ["e1", "e2", "e3"]) with { SeasonIds = ["s1", "s2"] };
+        var items = new[] { s1e1, s1e2, s2e1, season1, season2, series };
+
+        var plan = Planner().Plan(new CleanupRequest(Policy(protect, delete), [User("u1")], items, false));
+
+        plan.Deletions.Select(x => x.ItemId).Should().Contain("e3").And.NotContain(["e1", "e2", "s1"]);
+
+        var dryRun = Planner().Plan(new CleanupRequest(Policy(protect, delete), [User("u1")], items, true));
+        dryRun.AuditEntries.Should().Contain(x =>
+            x.ItemId == "e2"
+            && x.Outcome == CleanupAuditOutcome.Suppressed
+            && x.Reason.Contains("on season 's1'"));
+    }
+
+    [Fact]
+    public void Plan_PlayedSeasonRule_DeletesEpisodesThenSeason()
+    {
+        var rule = Rule(MediaItemKind.Season, CleanupRuleTriggerKind.Played, 0);
+        var e1 = Episode("e1", "s1", "show1", Playback("u1", Now.AddDays(-1), true));
+        var e2 = Episode("e2", "s1", "show1", Playback("u1", Now.AddDays(-1), true));
+        var season = Season("s1", "show1", ["e1", "e2"]) with { Playback = [Playback("u1", Now.AddDays(-1), true)] };
+        var series = Series("show1", ["e1", "e2"]) with { SeasonIds = ["s1"] };
+
+        var plan = Planner().Plan(new CleanupRequest(Policy(rule), [User("u1")], [e1, e2, season, series], false));
+
+        plan.Deletions.Select(x => x.ItemId).Should().Contain(["e1", "e2", "s1"]);
+    }
+
+    [Fact]
+    public void Plan_NotPlayedSeason_IgnoresPartiallyPlayedSeason()
+    {
+        var rule = Rule(MediaItemKind.Season, CleanupRuleTriggerKind.NotPlayed, 0);
+        var partial = Season("partial", "show1", ["e1"]) with { Playback = [InProgressPlayback(Now.AddDays(-1))] };
+
+        Planner().Plan(new CleanupRequest(Policy(rule), [User("u1")], [partial], false)).Decisions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Plan_InProgress_DoesNotMatchWhenSeasonReceivedNewEpisodesRecently()
+    {
+        var rule = Rule(MediaItemKind.Season, CleanupRuleTriggerKind.InProgress, 30);
+        var season = Season("s1", "show1", ["e1"]) with
+        {
+            Playback = [InProgressPlayback(Now.AddDays(-90))],
+            DateCreated = Now.AddDays(-2),
+        };
+
+        Planner().Plan(new CleanupRequest(Policy(rule), [User("u1")], [season], false)).Decisions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Plan_BlocksSeasonDelete_WhenNotEverySeasonEpisodeIsInCatalog()
+    {
+        var rule = Rule(MediaItemKind.Season, CleanupRuleTriggerKind.Played, 0);
+        var e1 = Episode("e1", "s1", "show1", Playback("u1", Now.AddDays(-1), true));
+        var season = Season("s1", "show1", ["e1", "missing"]) with { Playback = [Playback("u1", Now.AddDays(-1), true)] };
+
+        var plan = Planner().Plan(new CleanupRequest(Policy(rule), [User("u1")], [e1, season], false));
+
+        plan.Deletions.Should().BeEmpty();
+    }
+
+    private static PlaybackState InProgressPlayback(DateTime lastPlayed) =>
+        new("u1", lastPlayed, false, false, false, IsPartiallyPlayed: true);
+
     private static CleanupPlanner Planner(IExtraFileProbe? extraFileProbe = null) =>
         new(new FixedClock(Now), new TestPathMatcher(), extraFileProbe ?? new NoExtraFileProbe());
 

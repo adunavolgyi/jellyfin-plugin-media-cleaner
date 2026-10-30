@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Activity;
 using MediaCleaner.Compatibility;
@@ -18,7 +19,8 @@ internal sealed class JellyfinMutationAdapter(
     ILogger<JellyfinMutationAdapter> logger,
     ILibraryManager libraryManager,
     IActivityManager activityManager,
-    LeavingSoonCoordinator? leavingSoonCoordinator = null) : IMediaMutationAdapter
+    LeavingSoonCoordinator? leavingSoonCoordinator = null,
+    ArrSyncClient? arrSyncClient = null) : IMediaMutationAdapter
 {
     public async Task ExecuteAsync(CleanupPlan plan, CleanupCatalog catalog, CancellationToken cancellationToken)
     {
@@ -29,49 +31,87 @@ internal sealed class JellyfinMutationAdapter(
 
         var decisionsByItemId = GetDecisionsForItemIds(plan.Decisions, plannedDeletionIds)
             .ToDictionary(decision => decision.Item.Id, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var operation in plan.Deletions)
+        // Cascaded episodes without a decision of their own inherit their season's/series' decision (mark-as-unplayed).
+        var markUnplayedByItemId = new Dictionary<string, CleanupDecision>(decisionsByItemId, StringComparer.OrdinalIgnoreCase);
+        foreach (var decision in decisionsByItemId.Values)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!catalog.ItemsById.TryGetValue(operation.ItemId, out var item))
+            foreach (var episodeId in decision.Item.EpisodeIds ?? [])
             {
-                logger.LogWarning("Skipping deletion for unknown item id {ItemId}", operation.ItemId);
-                continue;
+                markUnplayedByItemId.TryAdd(episodeId, decision);
             }
+        }
 
-            var deleted = false;
-            void Delete()
+        var itemsById = catalog.Items.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        var failedEpisodeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var operation in plan.Deletions)
             {
-                // Jellyfin persists user data from MarkUnplayed, so it must run immediately
-                // before deletion while the same safety revision is guarded.
-                if (decisionsByItemId.TryGetValue(operation.ItemId, out var decision))
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!catalog.ItemsById.TryGetValue(operation.ItemId, out var item))
                 {
-                    MarkUnplayed(decision, catalog);
+                    logger.LogWarning("Skipping deletion for unknown item id {ItemId}", operation.ItemId);
+                    continue;
                 }
 
-                try
+                // Never let a recursive folder delete remove a file Jellyfin reported as not deleted.
+                if (operation.Kind != MediaItemKind.Episode
+                    && itemsById.GetValueOrDefault(operation.ItemId)?.EpisodeIds?.FirstOrDefault(failedEpisodeIds.Contains) is { } failedEpisode)
                 {
-                    JellyfinCompatibility.DeleteItem(libraryManager, item, new DeleteOptions { DeleteFileLocation = true });
-                    deleted = true;
+                    logger.LogWarning("Skipping deletion of {Name} because episode {EpisodeId} could not be deleted", operation.Name, failedEpisode);
+                    continue;
                 }
-                catch (Exception ex)
+
+                var deleted = false;
+                void Delete()
                 {
-                    logger.LogError(ex, "Error deleting item: {Name}", operation.Name);
+                    // Jellyfin persists user data from MarkUnplayed, so it must run immediately
+                    // before deletion while the same safety revision is guarded.
+                    if (markUnplayedByItemId.TryGetValue(operation.ItemId, out var decision))
+                    {
+                        MarkUnplayed(decision, item, catalog);
+                    }
+
+                    try
+                    {
+                        JellyfinCompatibility.DeleteItem(libraryManager, item, new DeleteOptions { DeleteFileLocation = true });
+                        deleted = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Error deleting item: {Name}", operation.Name);
+                    }
+                }
+
+                if (plan.SafetyRevision is { } revision && leavingSoonCoordinator is not null)
+                {
+                    leavingSoonCoordinator.ExecuteDeletionIfRevisionCurrent(revision, Delete);
+                }
+                else
+                {
+                    Delete();
+                }
+
+                if (deleted)
+                {
+                    successfullyDeletedIds.Add(operation.ItemId);
+                }
+                else if (operation.Kind == MediaItemKind.Episode)
+                {
+                    failedEpisodeIds.Add(operation.ItemId);
                 }
             }
-
-            if (plan.SafetyRevision is { } revision && leavingSoonCoordinator is not null)
+        }
+        finally
+        {
+            // Sync even when the loop was cancelled, so already-deleted items are not re-downloaded by Sonarr.
+            if (successfullyDeletedIds.Count > 0 && arrSyncClient is not null && Plugin.Instance?.Configuration is { } config)
             {
-                leavingSoonCoordinator.ExecuteDeletionIfRevisionCurrent(revision, Delete);
-            }
-            else
-            {
-                Delete();
-            }
-
-            if (deleted)
-            {
-                successfullyDeletedIds.Add(operation.ItemId);
+                var deletedItems = successfullyDeletedIds
+                    .Select(id => catalog.ItemsById.GetValueOrDefault(id))
+                    .OfType<MediaBrowser.Controller.Entities.BaseItem>()
+                    .ToList();
+                await arrSyncClient.SyncDeletedAsync(deletedItems, catalog, config, CancellationToken.None);
             }
         }
 
@@ -95,11 +135,11 @@ internal sealed class JellyfinMutationAdapter(
 
     private void LogSuccessfulDeletion(CleanupDecision decision)
     {
-        if (decision.Kind == CoreExpiredKind.Played)
+        if (decision.Kind is CoreExpiredKind.Played or CoreExpiredKind.InProgress)
         {
             var users = string.Join(", ", decision.Playback.Select(x => $"{(x.UserName ?? x.UserId)} ({x.LastPlayedDate?.ToLocalTime()})"));
-            logger.LogInformation("({Type}) \"{Name}\" was deleted because expired for: {Users}",
-                decision.Item.Kind, decision.Item.FullName, users);
+            logger.LogInformation("({Type}) \"{Name}\" was deleted because {Reason}: {Users}",
+                decision.Item.Kind, decision.Item.FullName, decision.Kind == CoreExpiredKind.Played ? "expired for" : "started but not finished by", users);
             return;
         }
 
@@ -161,9 +201,9 @@ internal sealed class JellyfinMutationAdapter(
         return builder.ToString().TrimEnd();
     }
 
-    private static void MarkUnplayed(CleanupDecision decision, CleanupCatalog catalog)
+    private static void MarkUnplayed(CleanupDecision decision, BaseItem item, CleanupCatalog catalog)
     {
-        if (decision.MarkUnplayedUserIds.Count == 0 || !catalog.ItemsById.TryGetValue(decision.Item.Id, out var item))
+        if (decision.MarkUnplayedUserIds.Count == 0)
         {
             return;
         }

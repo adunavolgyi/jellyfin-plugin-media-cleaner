@@ -431,6 +431,37 @@ public class JellyfinMediaCatalogAdapterLoadTests
     }
 
     [Fact]
+    public void Create_SeasonRule_AddsSeasonEpisodesAndAggregatesPlayback()
+    {
+        var user = CreateUser(0);
+        var libraryManager = new Mock<ILibraryManager>();
+        var library = TestLibrary.Create(libraryManager.Object, programCount: 1, episodeCount: 2);
+        var userData = new CountingUserDataManager([user], library.AllItems);
+        var first = library.Episodes[0];
+        userData.Set(user, first, PlayedData(Now.AddDays(-30)));
+        userData.Set(user, library.Episodes[1], new UserItemData { Key = "unplayed" });
+        var queries = new Dictionary<(BaseItemKind Kind, string UserId, ItemSortBy SortBy), int>();
+        SetupLibrary(libraryManager, library, queries);
+        SetupLibrary(libraryManager, library.Seasons.Cast<BaseItem>().ToList(), queries);
+
+        var adapter = new JellyfinMediaCatalogAdapter(
+            NullLogger<JellyfinMediaCatalogAdapter>.Instance,
+            CreateUserManager([user]),
+            libraryManager.Object,
+            userData.Manager,
+            new CountingTvHierarchyProvider(library));
+
+        var catalog = adapter.Create(
+            new CleanupPolicy([Rule("season", MediaItemKind.Season, CleanupRuleTriggerKind.InProgress, 0)], false),
+            CancellationToken.None);
+
+        catalog.Items.Count(x => x.Kind == MediaItemKind.Episode).Should().Be(2);
+        var season = catalog.Items.Single(x => x.Kind == MediaItemKind.Season);
+        season.Playback.Should().ContainSingle(x => x.IsPartiallyPlayed && !x.IsPlayed);
+        season.DateCreated.Should().BeOnOrAfter(library.Episodes.Max(x => x.DateCreated));
+    }
+
+    [Fact]
     public void Create_PopulatesTagsOnlyWhenAnyEnabledRuleNeedsTags()
     {
         var user = CreateUser(0);
@@ -516,6 +547,7 @@ public class JellyfinMediaCatalogAdapterLoadTests
     {
         BaseItemKind.Movie => item is Movie,
         BaseItemKind.Episode => item is Episode,
+        BaseItemKind.Season => item is Season,
         _ => false,
     };
 

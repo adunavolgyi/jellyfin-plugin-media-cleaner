@@ -271,6 +271,7 @@ internal static class PluginConfigurationMapper
         ConfigCleanupRuleTriggerKind.Played => CoreCleanupRuleTriggerKind.Played,
         ConfigCleanupRuleTriggerKind.NotPlayed => CoreCleanupRuleTriggerKind.NotPlayed,
         ConfigCleanupRuleTriggerKind.AddedAge => CoreCleanupRuleTriggerKind.AddedAge,
+        ConfigCleanupRuleTriggerKind.InProgress => CoreCleanupRuleTriggerKind.InProgress,
         _ => throw new NotSupportedException($"Unsupported rule trigger: {value}"),
     };
 

@@ -68,6 +68,7 @@ namespace MediaCleaner.Configuration
         Played,
         NotPlayed,
         AddedAge,
+        InProgress,
     }
 
     public enum CleanupRuleActionKind
@@ -125,6 +126,12 @@ namespace MediaCleaner.Configuration
         public string NoticeGeneration { get; set; } = "initial";
     }
 
+    public class ArrIntegrationConfiguration
+    {
+        public string Url { get; set; } = string.Empty;
+        public string ApiKey { get; set; } = string.Empty;
+    }
+
     public class CleanupRuleConfiguration
     {
         public string Id { get; set; } = string.Empty;
@@ -140,6 +147,9 @@ namespace MediaCleaner.Configuration
         public int ConfigVersion { get; set; } = 1;
         public List<CleanupRuleConfiguration> Rules { get; set; } = new List<CleanupRuleConfiguration>();
         public LeavingSoonConfiguration LeavingSoon { get; set; } = new LeavingSoonConfiguration();
+        public ArrIntegrationConfiguration Radarr { get; set; } = new ArrIntegrationConfiguration();
+        public ArrIntegrationConfiguration Sonarr { get; set; } = new ArrIntegrationConfiguration();
+        public ArrIntegrationConfiguration Seerr { get; set; } = new ArrIntegrationConfiguration();
 
         public int KeepMoviesFor { get; set; } = -1;
         public int KeepMoviesNotPlayedFor { get; set; } = -1;

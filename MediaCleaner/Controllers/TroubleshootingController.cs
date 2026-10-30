@@ -20,6 +20,7 @@ using MediaCleaner.Core;
 using MediaCleaner.LeavingSoon;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -114,7 +115,7 @@ public class TroubleshootingController(
         var leavingSoonCoordinator = scope.ServiceProvider.GetRequiredService<LeavingSoonCoordinator>();
         var progress = new Progress<double>();
         var configurationSnapshot = Plugin.Instance!.Configuration;
-        var pluginConfig = GetPrettyXml(configurationSnapshot);
+        var pluginConfig = RedactSecrets(GetPrettyXml(configurationSnapshot));
         var policySnapshot = configurationSnapshot.ToCleanupPolicy();
 
         using var loggerFactory = LoggerFactory.Create(_ => { });
@@ -127,7 +128,8 @@ public class TroubleshootingController(
             activityManager,
             localization,
             fileSystem,
-            leavingSoonCoordinator)
+            leavingSoonCoordinator,
+            scope.ServiceProvider.GetRequiredService<IHttpClientFactory>())
         {
             IsDryRun = true,
             PolicyOverride = policySnapshot,
@@ -837,6 +839,10 @@ public class TroubleshootingController(
 
     private static string GetOutcomeClass(CleanupAuditOutcome outcome) =>
         $"mediaCleanerDecisionBadge-{outcome.ToString().ToLowerInvariant()}";
+
+    // The report is meant to be pasted publicly; the config backup download stays unredacted.
+    internal static string RedactSecrets(string configXml) =>
+        System.Text.RegularExpressions.Regex.Replace(configXml, "(<ApiKey>)[^<]+(</ApiKey>)", "$1***$2");
 
     private static string GetPrettyXml(object o)
     {

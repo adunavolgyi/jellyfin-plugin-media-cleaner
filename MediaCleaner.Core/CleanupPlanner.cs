@@ -82,6 +82,12 @@ public sealed class CleanupPlanner(IClock clock, IPathMatcher pathMatcher, IExtr
                 else if (rule.Actions.Kind == CleanupRuleActionKind.Protect)
                 {
                     protectedIds.Add(match.Item.Id);
+                    if (match.Item.Kind == MediaItemKind.Season)
+                    {
+                        // A protected season keeps its episodes too (series protection intentionally does not).
+                        protectedIds.UnionWith(match.Item.EpisodeIds ?? []);
+                    }
+
                     if (request.IsDryRun)
                     {
                         protectMatches!.Add(match);
@@ -116,7 +122,7 @@ public sealed class CleanupPlanner(IClock clock, IPathMatcher pathMatcher, IExtr
                     audit)
                 : decisionAccumulator!.BuildDecisions(protectedIds))
             .OrderBy(x => CleanupRuleKinds.Priority(x.Kind))
-            .ThenBy(x => x.Kind == ExpiredKind.Played ? FirstPlaybackLastPlayedDate(x.Playback) : x.Item.DateCreated)
+            .ThenBy(x => x.Kind is ExpiredKind.Played or ExpiredKind.InProgress ? FirstPlaybackLastPlayedDate(x.Playback) : x.Item.DateCreated)
             .ToList();
 
         var cascadePlanner = new DeletionCascadePlanner(extraFileProbe);
@@ -251,10 +257,19 @@ public sealed class CleanupPlanner(IClock clock, IPathMatcher pathMatcher, IExtr
                 ?? ["protected by an external safety exclusion"]);
         }
 
-        reasons.AddRange(protectMatches
-            .Where(x => string.Equals(x.Item.Id, itemId, StringComparison.OrdinalIgnoreCase))
-            .Select(x => $"matched protection rule '{x.Rule.Name}'")
-            .Distinct(StringComparer.OrdinalIgnoreCase));
+        foreach (var match in protectMatches)
+        {
+            if (string.Equals(match.Item.Id, itemId, StringComparison.OrdinalIgnoreCase))
+            {
+                reasons.Add($"matched protection rule '{match.Rule.Name}'");
+            }
+            else if (match.Item.Kind == MediaItemKind.Season && (match.Item.EpisodeIds?.Contains(itemId, StringComparer.OrdinalIgnoreCase) ?? false))
+            {
+                reasons.Add($"matched protection rule '{match.Rule.Name}' on season '{match.Item.Name}'");
+            }
+        }
+
+        reasons = reasons.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         return reasons.Count == 0
             ? "delete suppressed because item is protected"

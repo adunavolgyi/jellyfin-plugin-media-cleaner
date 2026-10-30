@@ -254,6 +254,29 @@ public class PluginConfigurationMapperTests
     }
 
     [Fact]
+    public void ToCleanupPolicy_MapsInProgressTriggerOnSeasons()
+    {
+        var config = new PluginConfiguration
+        {
+            ConfigVersion = 2,
+            Rules =
+            [
+                new CleanupRuleConfiguration
+                {
+                    Id = "season",
+                    Trigger = new CleanupRuleTriggerConfiguration { Kind = ConfigRuleTriggerKind.InProgress },
+                    Filters = new CleanupRuleFiltersConfiguration { MediaKinds = [ConfigRuleMediaKind.Season] },
+                },
+            ],
+        };
+
+        var rule = config.ToCleanupPolicy().Rules.Should().ContainSingle().Subject;
+
+        rule.Trigger.Kind.Should().Be(MediaCleaner.Core.CleanupRuleTriggerKind.InProgress);
+        rule.Filters.MediaKinds.Should().Equal(MediaCleaner.Core.MediaItemKind.Season);
+    }
+
+    [Fact]
     public void ToCleanupPolicy_MapsCurrentRuleConfiguration()
     {
         var config = new PluginConfiguration

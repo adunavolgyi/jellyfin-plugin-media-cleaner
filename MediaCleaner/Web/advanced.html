@@ -130,6 +130,61 @@
                     <p class="fieldDescription">Protections and notice history are not included in configuration backups.</p>
                 </section>
 
+                <section class="paperList mediaCleanerAdvancedSection" aria-label="Radarr, Sonarr and Seerr">
+                    <div class="mediaCleanerAdvancedHeader">
+                        <h3>Radarr, Sonarr and Seerr</h3>
+                        <p class="fieldDescription mediaCleanerHint">After Media Cleaner deletes media: movies are removed from Radarr, series are removed from Sonarr, deleted episodes are unmonitored in Sonarr, and the Seerr entry of deleted movies and series is cleared so it can be requested again. These apps never delete files; Jellyfin already did. Leave a URL empty to disable that app.</p>
+                    </div>
+                    <div class="mediaCleanerTagMaintenanceFields">
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="MediaCleanerArrRadarrUrl">Radarr URL</label>
+                            <input is="emby-input" id="MediaCleanerArrRadarrUrl" type="url" autocomplete="off" placeholder="http://localhost:7878" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="MediaCleanerArrRadarrApiKey">Radarr API key</label>
+                            <input is="emby-input" id="MediaCleanerArrRadarrApiKey" type="password" autocomplete="off" />
+                        </div>
+                    </div>
+                    <div class="mediaCleanerTagMaintenanceActions">
+                        <button id="MediaCleanerTestArrRadarr" is="emby-button" type="button" class="raised emby-button" data-arr-app="Radarr">
+                            <span>Test Radarr connection</span>
+                        </button>
+                        <span id="MediaCleanerTestArrRadarrResult" class="fieldDescription" role="status" aria-live="polite"></span>
+                    </div>
+                    <div class="mediaCleanerTagMaintenanceFields">
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="MediaCleanerArrSonarrUrl">Sonarr URL</label>
+                            <input is="emby-input" id="MediaCleanerArrSonarrUrl" type="url" autocomplete="off" placeholder="http://localhost:8989" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="MediaCleanerArrSonarrApiKey">Sonarr API key</label>
+                            <input is="emby-input" id="MediaCleanerArrSonarrApiKey" type="password" autocomplete="off" />
+                        </div>
+                    </div>
+                    <div class="mediaCleanerTagMaintenanceActions">
+                        <button id="MediaCleanerTestArrSonarr" is="emby-button" type="button" class="raised emby-button" data-arr-app="Sonarr">
+                            <span>Test Sonarr connection</span>
+                        </button>
+                        <span id="MediaCleanerTestArrSonarrResult" class="fieldDescription" role="status" aria-live="polite"></span>
+                    </div>
+                    <div class="mediaCleanerTagMaintenanceFields">
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="MediaCleanerArrSeerrUrl">Seerr URL</label>
+                            <input is="emby-input" id="MediaCleanerArrSeerrUrl" type="url" autocomplete="off" placeholder="http://localhost:5055" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="MediaCleanerArrSeerrApiKey">Seerr API key</label>
+                            <input is="emby-input" id="MediaCleanerArrSeerrApiKey" type="password" autocomplete="off" />
+                        </div>
+                    </div>
+                    <div class="mediaCleanerTagMaintenanceActions">
+                        <button id="MediaCleanerTestArrSeerr" is="emby-button" type="button" class="raised emby-button" data-arr-app="Seerr">
+                            <span>Test Seerr connection</span>
+                        </button>
+                        <span id="MediaCleanerTestArrSeerrResult" class="fieldDescription" role="status" aria-live="polite"></span>
+                    </div>
+                </section>
+
                 <section class="paperList mediaCleanerAdvancedSection" aria-label="Library tag maintenance">
                     <div class="mediaCleanerAdvancedHeader">
                         <h3>Library tag maintenance</h3>

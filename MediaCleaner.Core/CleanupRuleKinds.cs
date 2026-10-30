@@ -9,6 +9,7 @@ internal static class CleanupRuleKinds
         CleanupRuleTriggerKind.Played => ExpiredKind.Played,
         CleanupRuleTriggerKind.NotPlayed => ExpiredKind.NotPlayed,
         CleanupRuleTriggerKind.AddedAge => ExpiredKind.AddedAge,
+        CleanupRuleTriggerKind.InProgress => ExpiredKind.InProgress,
         _ => throw new NotSupportedException($"Unsupported rule trigger: {kind}"),
     };
 
@@ -17,6 +18,7 @@ internal static class CleanupRuleKinds
         ExpiredKind.Played => 0,
         ExpiredKind.NotPlayed => 1,
         ExpiredKind.AddedAge => 2,
+        ExpiredKind.InProgress => 3,
         _ => throw new NotSupportedException($"Unsupported expired kind: {kind}"),
     };
 }

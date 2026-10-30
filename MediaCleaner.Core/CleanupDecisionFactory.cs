@@ -19,6 +19,7 @@ internal static class CleanupDecisionFactory
         var reason = kind switch
         {
             ExpiredKind.Played => $"expired for {string.Join(", ", playback.Select(DisplayUser))}",
+            ExpiredKind.InProgress => $"started but not finished by {string.Join(", ", playback.Select(DisplayUser))}",
             ExpiredKind.NotPlayed => $"not played since {item.DateCreated.ToLocalTime().ToString(CultureInfo.CurrentCulture)}",
             ExpiredKind.AddedAge => $"added at {item.DateCreated.ToLocalTime().ToString(CultureInfo.CurrentCulture)}",
             _ => throw new NotSupportedException($"Unsupported expired kind: {kind}"),
@@ -42,6 +43,9 @@ internal static class CleanupDecisionFactory
             ExpiredKind.Played => playback.Count == 0
                 ? "Played item expired"
                 : $"Last played by {DisplayUser(playback.First())} at {playback.First().LastPlayedDate!.Value.ToLocalTime()}",
+            ExpiredKind.InProgress => playback.Count == 0
+                ? "Season started but not finished"
+                : $"Last played by {DisplayUser(playback.First())} at {playback.First().LastPlayedDate!.Value.ToLocalTime()}; season not finished",
             ExpiredKind.NotPlayed => $"Not played by anyone since {item.DateCreated.ToLocalTime()}",
             ExpiredKind.AddedAge => $"Added at {item.DateCreated.ToLocalTime()}",
             _ => throw new NotSupportedException($"Unsupported expired kind: {kind}"),

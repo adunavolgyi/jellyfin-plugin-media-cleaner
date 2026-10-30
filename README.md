@@ -5,7 +5,7 @@ Automatically delete media according to configurable rules. Works with any media
 
 ## Installation
 
-Add repository with my plugins from [jellyfin-plugin-repo](https://github.com/shemanaev/jellyfin-plugin-repo).
+In Jellyfin, open **Dashboard → Plugins → Repositories**, add `https://raw.githubusercontent.com/adunavolgyi/jellyfin-plugin-media-cleaner/gh-pages/manifest.json`, then install **Media Cleaner** from the catalog. Remove the original Media Cleaner repository first: this fork uses the same plugin id.
 
 ## Configuration
 
@@ -22,12 +22,14 @@ Rules are split into cleanup rules and protection rules.
 
 Each rule has:
 
-* a trigger: played before cutoff, not played since added, or age since added regardless of playback;
-* a media scope: one media type or all media;
+* a trigger: played before cutoff, not played since added, age since added regardless of playback, or (seasons only) started but not finished;
+* a media scope: one media type (including **Season**) or all media;
 * optional filters for playback users, favorite state, favorite users, library locations and tags;
 * an action: delete or protect.
 
 For episode cleanup rules, the deletion scope controls whether Media Cleaner deletes matching episodes individually, complete seasons, complete series, or complete ended series. Episode and season scopes can keep the first or latest item in the entire series as an exception, even when that item does not match the rule. Individual-episode cleanup can instead keep the episode most recently watched by the users included in that rule. Cleanup is blocked when the configured exception cannot be identified safely.
+
+The **Season** media type evaluates a whole season from its episodes: it counts as played only when a user played every episode, and as started once any episode was played or has a resume position. The **Started but not finished** trigger matches seasons that an included user has started but not finished and that have had no playback by included users and no new episodes for the given number of days. A protection rule with this trigger and 0 days keeps every season someone is in the middle of, including its remaining episodes. Seasons with a resume position on any episode are always protected as currently being watched.
 
 Played cleanup can require playback by at least one user, the most recent play by any user, or every user. Not-played cleanup can ignore older playback history so old watches do not keep new imports forever.
 
@@ -48,6 +50,7 @@ The collection is available through Jellyfin's normal **Collections** view. **Ke
 The **Advanced** tab contains tools and safety switches that should not be hidden inside ordinary rules:
 
 * **Count playback before Date Added** changes how played and not-played rules handle Jellyfin items whose `LastPlayedDate` is earlier than `DateCreated` / "*Date Added*".
+* **Radarr, Sonarr and Seerr** sync after deletion. When a URL and API key are set, deleted movies are removed from Radarr, deleted series are removed from Sonarr, deleted episodes are unmonitored in Sonarr (followed by a rescan), and the matching Seerr entry of deleted movies and series is cleared so it can be requested again. Use the **Test connection** buttons to check a URL and API key before saving. Matching uses TMDB ids (Radarr, Seerr) and TVDB ids (Sonarr). These apps are never asked to delete files, since Jellyfin already did. Sonarr episodes are matched by Jellyfin season and episode numbers, so a series that uses a different episode order in Jellyfin than in Sonarr (absolute or DVD) can unmonitor the wrong episodes; files are never touched. Failures are logged as warnings and do not affect the cleanup. Multiple instances are not supported.
 * **Library tag maintenance** previews and then renames a tag on matching Jellyfin library items. It does not update rule definitions automatically.
 
 ### Troubleshooting

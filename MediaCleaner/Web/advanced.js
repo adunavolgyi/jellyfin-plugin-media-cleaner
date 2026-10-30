@@ -1,3 +1,5 @@
+const arrApps = ['Radarr', 'Sonarr', 'Seerr']
+
 export default function (view, params) {
     const commonsUrl = ApiClient.getUrl('web/ConfigurationPage', { name: 'MediaCleaner_commons_js' })
 
@@ -17,7 +19,7 @@ export default function (view, params) {
         updateSaveStatus(page)
     })
 
-    view.querySelectorAll('[id^="MediaCleanerLeavingSoon"]').forEach(input => {
+    view.querySelectorAll('[id^="MediaCleanerLeavingSoon"], [id^="MediaCleanerArr"]').forEach(input => {
         const onChange = function () {
             const page = this.closest('#MediaCleanerAdvancedPage')
             readSettings(page)
@@ -25,6 +27,12 @@ export default function (view, params) {
         }
         input.addEventListener('change', onChange)
         input.addEventListener('input', onChange)
+    })
+
+    view.querySelectorAll('[data-arr-app]').forEach(button => {
+        button.addEventListener('click', function () {
+            testArrConnection(this.closest('#MediaCleanerAdvancedPage'), this)
+        })
     })
 
     view.querySelector('#MediaCleanerPreviewTagRename').addEventListener('click', function () {
@@ -50,6 +58,7 @@ function onViewShow(commons) {
     ApiClient.getPluginConfiguration(commons.pluginId).then(config => {
         page._mediaCleanerAllowDeleteIfPlayedBeforeAdded = config.AllowDeleteIfPlayedBeforeAdded === true
         page._mediaCleanerLeavingSoon = normalizeLeavingSoon(config.LeavingSoon)
+        page._mediaCleanerArr = normalizeArr(config)
         renderSettings(page)
         page._savedSettingsSnapshot = settingsSnapshot(page)
         updateSaveStatus(page)
@@ -68,6 +77,7 @@ function onFormSubmit(commons) {
         const refreshLeavingSoon = JSON.stringify(normalizeLeavingSoon(config.LeavingSoon)) !== JSON.stringify(page._mediaCleanerLeavingSoon)
         config.AllowDeleteIfPlayedBeforeAdded = page._mediaCleanerAllowDeleteIfPlayedBeforeAdded === true
         config.LeavingSoon = page._mediaCleanerLeavingSoon
+        Object.assign(config, page._mediaCleanerArr)
 
         ApiClient.updatePluginConfiguration(commons.pluginId, config).then(result => {
             page._savedSettingsSnapshot = settingsSnapshot(page)
@@ -97,6 +107,11 @@ function renderSettings(page) {
     page.querySelector('#MediaCleanerLeavingSoonEnabled').checked = leavingSoon.Enabled
     page.querySelector('#MediaCleanerLeavingSoonNoticeDays').value = leavingSoon.NoticeDays
     page.querySelector('#MediaCleanerLeavingSoonCollectionName').value = leavingSoon.CollectionName
+    const arr = page._mediaCleanerArr || normalizeArr()
+    arrApps.forEach(app => {
+        page.querySelector(`#MediaCleanerArr${app}Url`).value = arr[app].Url
+        page.querySelector(`#MediaCleanerArr${app}ApiKey`).value = arr[app].ApiKey
+    })
 }
 
 function readSettings(page) {
@@ -106,12 +121,17 @@ function readSettings(page) {
         NoticeDays: noticeDays(page.querySelector('#MediaCleanerLeavingSoonNoticeDays').value),
         CollectionName: page.querySelector('#MediaCleanerLeavingSoonCollectionName').value.trim() || 'Leaving Soon',
     }
+    page._mediaCleanerArr = Object.fromEntries(arrApps.map(app => [app, {
+        Url: page.querySelector(`#MediaCleanerArr${app}Url`).value.trim(),
+        ApiKey: page.querySelector(`#MediaCleanerArr${app}ApiKey`).value.trim(),
+    }]))
 }
 
 function settingsSnapshot(page) {
     return JSON.stringify({
         AllowDeleteIfPlayedBeforeAdded: page._mediaCleanerAllowDeleteIfPlayedBeforeAdded === true,
         LeavingSoon: page._mediaCleanerLeavingSoon || normalizeLeavingSoon(),
+        Arr: page._mediaCleanerArr || normalizeArr(),
     })
 }
 
@@ -122,6 +142,14 @@ function normalizeLeavingSoon(value) {
         NoticeDays: noticeDays(value.NoticeDays),
         CollectionName: String(value.CollectionName || '').trim() || 'Leaving Soon',
     }
+}
+
+function normalizeArr(config) {
+    config = config || {}
+    return Object.fromEntries(arrApps.map(app => [app, {
+        Url: String((config[app] || {}).Url || '').trim(),
+        ApiKey: String((config[app] || {}).ApiKey || '').trim(),
+    }]))
 }
 
 function noticeDays(value) {
@@ -213,6 +241,36 @@ function readTagRenameRequest(page) {
     }
 
     return { OldTag: oldTag, NewTag: newTag }
+}
+
+function testArrConnection(page, button) {
+    const app = button.dataset.arrApp
+    const result = page.querySelector(`#MediaCleanerTestArr${app}Result`)
+    const show = (success, message) => {
+        result.textContent = message
+        result.style.color = success ? '' : '#ff9800'
+    }
+
+    button.disabled = true
+    show(true, 'Testing...')
+    ApiClient.fetch({
+        type: 'POST',
+        url: ApiClient.getUrl('MediaCleaner/Arr/Test'),
+        data: JSON.stringify({
+            App: app,
+            Url: page.querySelector(`#MediaCleanerArr${app}Url`).value.trim(),
+            ApiKey: page.querySelector(`#MediaCleanerArr${app}ApiKey`).value.trim(),
+        }),
+        contentType: 'application/json',
+        dataType: 'json',
+    }).then(normalizeTagRenameResponse).then(report => {
+        show(report.Success === true, report.Message || 'No response')
+    }).catch(error => {
+        console.error('Error testing connection:', error)
+        show(false, 'Could not run the connection test.')
+    }).finally(() => {
+        button.disabled = false
+    })
 }
 
 function tagRenameFetch(endpoint, request) {

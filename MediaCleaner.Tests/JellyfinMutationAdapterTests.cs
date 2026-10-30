@@ -161,6 +161,63 @@ public class JellyfinMutationAdapterTests
         result.Should().ContainSingle().Which.Should().BeSameAs(deleted);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_MarksCascadedEpisodesUnplayedForTheirSeasonDecision()
+    {
+        var seasonItem = Item("season", MediaItemKind.Season, "Season") with { EpisodeIds = ["episode"] };
+        var seasonEntity = new RecordingMovie { Id = Guid.NewGuid(), Name = "Season" };
+        var episodeEntity = new RecordingMovie { Id = Guid.NewGuid(), Name = "Episode" };
+        var user = new JellyfinUser("User", "test", "test");
+        var adapter = new JellyfinMutationAdapter(
+            NullLogger<JellyfinMutationAdapter>.Instance,
+            Mock.Of<ILibraryManager>(),
+            Mock.Of<IActivityManager>(x => x.CreateAsync(It.IsAny<JellyfinActivityLog>()) == Task.CompletedTask));
+        var plan = new CleanupPlan(
+            [Decision(seasonItem, markUnplayedUserIds: ["user"])],
+            [
+                new DeletionOperation("episode", MediaItemKind.Episode, "Episode"),
+                new DeletionOperation("season", MediaItemKind.Season, "Season"),
+            ],
+            []);
+        var catalog = Catalog(
+            new Dictionary<string, JellyfinUser>(StringComparer.OrdinalIgnoreCase) { ["user"] = user },
+            ("episode", episodeEntity),
+            ("season", seasonEntity));
+
+        await adapter.ExecuteAsync(plan, catalog, CancellationToken.None);
+
+        episodeEntity.MarkUnplayedCount.Should().Be(1);
+        seasonEntity.MarkUnplayedCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SkipsSeasonDeletion_WhenOneOfItsEpisodesFailedToDelete()
+    {
+        var seasonItem = Item("season", MediaItemKind.Season, "Season") with { EpisodeIds = ["episode"] };
+        var seasonEntity = new RecordingMovie { Id = Guid.NewGuid(), Name = "Season" };
+        var episodeEntity = new RecordingMovie { Id = Guid.NewGuid(), Name = "Episode" };
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager
+            .Setup(x => x.DeleteItem(episodeEntity, It.IsAny<DeleteOptions>(), true))
+            .Throws<InvalidOperationException>();
+        var adapter = new JellyfinMutationAdapter(
+            NullLogger<JellyfinMutationAdapter>.Instance,
+            libraryManager.Object,
+            Mock.Of<IActivityManager>(x => x.CreateAsync(It.IsAny<JellyfinActivityLog>()) == Task.CompletedTask));
+        var plan = new CleanupPlan(
+            [Decision(seasonItem)],
+            [
+                new DeletionOperation("episode", MediaItemKind.Episode, "Episode"),
+                new DeletionOperation("season", MediaItemKind.Season, "Season"),
+            ],
+            []);
+        var catalog = Catalog(("episode", episodeEntity), ("season", seasonEntity)) with { Items = [seasonItem] };
+
+        await adapter.ExecuteAsync(plan, catalog, CancellationToken.None);
+
+        libraryManager.Verify(x => x.DeleteItem(seasonEntity, It.IsAny<DeleteOptions>(), true), Times.Never);
+    }
+
     private static CleanupCatalog Catalog(params (string Id, BaseItem Item)[] items) =>
         Catalog(new Dictionary<string, JellyfinUser>(StringComparer.OrdinalIgnoreCase), items);
 

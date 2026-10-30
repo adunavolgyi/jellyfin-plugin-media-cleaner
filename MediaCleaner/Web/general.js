@@ -1,4 +1,6 @@
 const mediaKinds = ['Movie', 'Episode', 'Video', 'Audio', 'AudioBook']
+// Season is selectable on its own but is deliberately not part of the persisted "All media" list.
+const selectableMediaKinds = ['Movie', 'Episode', 'Season', 'Video', 'Audio', 'AudioBook']
 const allMediaKind = 'All'
 const triggerKinds = ['Played', 'NotPlayed', 'AddedAge']
 const conditionRegistry = [
@@ -712,7 +714,7 @@ function summaryUsersHtml(page, rule) {
         return `<div class="mediaCleanerRuleScope">${escapeHtml(playbackUsersScope(rule.Filters) === 'AllUsers' ? 'Users: all users' : 'Users: all users except selected users')}</div>`
     }
 
-    const connector = rule.Trigger.Kind === 'Played' && rule.Trigger.PlayedKeepKind !== 'AllUsers' ? 'OR' : 'AND'
+    const connector = rule.Trigger.Kind === 'InProgress' || (rule.Trigger.Kind === 'Played' && rule.Trigger.PlayedKeepKind !== 'AllUsers') ? 'OR' : 'AND'
     const names = ids.map(id => userName(page, id))
     return `<div class="mediaCleanerRuleUsers">${names.map((name, index) => `${index > 0 ? `<span class="mediaCleanerRuleUserConnector">${connector}</span>` : ''}<span class="mediaCleanerRuleUser">${escapeHtml(name)}</span>`).join('')}</div>`
 }
@@ -725,7 +727,7 @@ function summaryFilterLines(page, rule) {
         const selected = filters.FavoriteUsersMode === 'Acknowledge' && filters.FavoriteUserIds.length > 0
             ? `: ${filters.FavoriteUserIds.map(id => userName(page, id)).join(['FavoriteByAllUsers', 'NotFavoriteByAnyUser'].includes(filters.FavoriteFilter) ? ' AND ' : ' OR ')}`
             : ''
-        lines.push(`${favorite}${selected}. Episode favorites include the episode, season, or series; season favorites include the season or series.`)
+        lines.push(`${favorite}${selected}. Episode favorites include the episode, season, or series; season favorites include the season, its series, or any of its episodes.`)
     }
     if (filters.Locations.length > 0) lines.push(filters.LocationsMode === 'Include' ? 'Only selected locations' : 'Outside selected locations')
     if (filters.EnableTagFilter) lines.push(filters.Tags.length > 0
@@ -838,7 +840,7 @@ function renderTriggerBlock(rule, page) {
         ? warningHtml('This cleanup rule can delete matching media immediately. Review the conditions carefully before saving.')
         : ''
     return `
-        ${selectHtml('TriggerKind', 'Match media based on', trigger.Kind, triggerKinds)}
+        ${selectHtml('TriggerKind', 'Match media based on', trigger.Kind, isSeasonOnly(rule) ? [...triggerKinds, 'InProgress'] : triggerKinds)}
         ${triggerDescriptionHtml(trigger.Kind)}
         ${numberHtml('Days', triggerDaysLabel(trigger.Kind), trigger.Days, 0)}
         ${zeroDayWarning}
@@ -847,7 +849,7 @@ function renderTriggerBlock(rule, page) {
 }
 
 function renderMediaBlock(filters) {
-    return selectHtml('MediaKind', 'Media type', mediaKindValue(filters.MediaKinds), [allMediaKind, ...mediaKinds])
+    return selectHtml('MediaKind', 'Media type', mediaKindValue(filters.MediaKinds), [allMediaKind, ...selectableMediaKinds])
 }
 
 function outcomeDescription() {
@@ -1030,7 +1032,7 @@ function favoriteFilterHtml(filters, users, scope) {
             ? warningHtml('Select at least one user to exclude. An empty exclusion is equivalent to all users.')
             : ''
     return selectHtml('FavoriteFilter', 'Favorite requirement', filters.FavoriteFilter, ['FavoriteByAnyUser', 'FavoriteByAllUsers', 'NotFavoriteByAnyUser', 'NotFavoriteByAllUsers'])
-        + '<p class="fieldDescription">For episodes, favorite can come from the episode itself, its season, or its series. For seasons, favorite can come from the season or its series.</p>'
+        + '<p class="fieldDescription">For episodes, favorite can come from the episode itself, its season, or its series. For seasons, favorite can come from the season, its series, or any of its episodes.</p>'
         + selectHtml('FavoriteUsersScope', 'Users included in favorite checks', scope, ['AllUsers', 'SelectedOnly', 'AllExceptSelected'])
         + userList
         + warning
@@ -1065,7 +1067,7 @@ function triggerDescriptionHtml(kind) {
     const descriptions = {
         Played: 'Match media whose qualifying playback happened at least this many days ago. Playback before Date Added is ignored for safety unless advanced playback matching is enabled.',
         NotPlayed: 'Match media that was added at least this many days ago and has no qualifying playback. Playback before Date Added is treated as ambiguous and blocks matching unless advanced playback matching is enabled.',
-        AddedAge: 'Match media that was added at least this many days ago, regardless of playback history. This uses Date Added.',
+        InProgress: 'Match seasons that at least one included user has started (watching the first episode is enough) but not finished, with no playback in the season by included users and no new episodes for at least this many days. Use a protection rule with 0 days to keep every season someone is in the middle of. Seasons with a resume position on any episode are always protected as currently being watched.',
         AddedAge: 'Match media that was added at least this many days ago, regardless of playback history. This uses Date Added.',
     }
     return `<div class="fieldDescription mediaCleanerTriggerDescription">${escapeHtml(descriptions[kind] || '')}</div>`
@@ -1073,6 +1075,7 @@ function triggerDescriptionHtml(kind) {
 
 function triggerDaysLabel(kind) {
     if (kind === 'Played') return 'Minimum days since playback'
+    if (kind === 'InProgress') return 'Minimum days since last playback'
     return 'Minimum days since added'
 }
 
@@ -1101,6 +1104,7 @@ function generatedMediaLabel(kinds) {
 function generatedTriggerLabel(trigger) {
     if (trigger.Kind === 'Played') return trigger.Days === 0 ? 'Played immediately' : `Played ${trigger.Days}d ago`
     if (trigger.Kind === 'NotPlayed') return trigger.Days === 0 ? 'Not played, added immediately' : `Not played, added ${trigger.Days}d ago`
+    if (trigger.Kind === 'InProgress') return trigger.Days === 0 ? 'Started, not finished' : `Started, idle ${trigger.Days}d`
     return trigger.Days === 0 ? 'Added immediately' : `Added ${trigger.Days}d ago`
 }
 
@@ -1118,6 +1122,10 @@ function triggerLabel(trigger) {
 
     if (trigger.Kind === 'NotPlayed') {
         return trigger.Days === 0 ? 'not played; eligible immediately after being added' : `not played and added at least ${dayText(trigger.Days)} ago`
+    }
+
+    if (trigger.Kind === 'InProgress') {
+        return trigger.Days === 0 ? 'started but not finished' : `started but not finished, with no playback for ${dayText(trigger.Days)}`
     }
 
     return trigger.Days === 0 ? 'eligible immediately after being added' : `added at least ${dayText(trigger.Days)} ago, regardless of playback`
@@ -1166,6 +1174,13 @@ function triggerSentence(trigger, filters) {
         return trigger.Days === 0
             ? `${notPlayed} and become eligible immediately after being added`
             : `were added at least ${dayText(trigger.Days)} ago and ${notPlayed}`
+    }
+
+    if (trigger.Kind === 'InProgress') {
+        const started = `were started but not finished by ${playbackAnyUserPhrase(scope)}`
+        return trigger.Days === 0
+            ? started
+            : `${started} and have had no playback by ${playbackAnyUserPhrase(scope)} for at least ${dayText(trigger.Days)}`
     }
 
     return trigger.Days === 0
@@ -1346,6 +1361,8 @@ function pluralMediaKind(kind) {
             return 'movies'
         case 'Episode':
             return 'episodes'
+        case 'Season':
+            return 'seasons'
         case 'Video':
             return 'videos'
         case 'Audio':
@@ -1458,6 +1475,10 @@ function normalizeRule(rule) {
         Actions: normalizeActions(rule.Actions),
     }
 
+    if (normalized.Trigger.Kind === 'InProgress' && !isSeasonOnly(normalized)) {
+        normalized.Trigger.Kind = 'Played'
+    }
+
     if (isProtectRule(normalized)) {
         normalized.Filters.DeleteEpisodes = 'Episode'
         normalized.Filters.KeepSeriesKind = 'None'
@@ -1533,6 +1554,10 @@ function isEpisodeOnly(rule) {
     return rule.Filters.MediaKinds.length === 1 && rule.Filters.MediaKinds[0] === 'Episode'
 }
 
+function isSeasonOnly(rule) {
+    return rule.Filters.MediaKinds.length === 1 && rule.Filters.MediaKinds[0] === 'Season'
+}
+
 function isAllMedia(kinds) {
     return kinds.length === mediaKinds.length && mediaKinds.every(kind => kinds.includes(kind))
 }
@@ -1542,7 +1567,7 @@ function mediaKindValue(kinds) {
 }
 
 function normalizeMediaKinds(kinds) {
-    const selected = Array.isArray(kinds) ? unique(kinds.filter(kind => mediaKinds.includes(kind))) : []
+    const selected = Array.isArray(kinds) ? unique(kinds.filter(kind => selectableMediaKinds.includes(kind))) : []
     if (isAllMedia(selected)) {
         return mediaKinds.slice()
     }
@@ -1642,7 +1667,7 @@ function unique(values) {
 
 function optionLabel(field, value) {
     const labels = {
-        TriggerKind: { Played: 'Played before cutoff', NotPlayed: 'Not played since added', AddedAge: 'Age since added (ignore playback)' },
+        TriggerKind: { Played: 'Played before cutoff', NotPlayed: 'Not played since added', AddedAge: 'Age since added (ignore playback)', InProgress: 'Started but not finished' },
         MediaKind: { All: 'All media' },
         PlayedKeepKind: { AnyUser: 'At least one user', AnyUserRolling: 'Most recent play by any user', AllUsers: 'Every user' },
         UsersMode: { Acknowledge: 'Selected users only', Ignore: 'All users except selected' },

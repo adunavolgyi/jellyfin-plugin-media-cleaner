@@ -26,7 +26,7 @@ internal sealed class CleanupRuleMatcher(DateTime now, IPathMatcher pathMatcher,
         }
 
         var users = CleanupPlanner.FilterUsers(requestUsers, rule.Filters.UserIds, rule.Filters.UsersMode).ToList();
-        if (rule.Trigger.Kind is CleanupRuleTriggerKind.Played or CleanupRuleTriggerKind.NotPlayed && users.Count == 0)
+        if (rule.Trigger.Kind is CleanupRuleTriggerKind.Played or CleanupRuleTriggerKind.NotPlayed or CleanupRuleTriggerKind.InProgress && users.Count == 0)
         {
             CleanupAudit.AddRule(
                 audit,
@@ -73,6 +73,7 @@ internal sealed class CleanupRuleMatcher(DateTime now, IPathMatcher pathMatcher,
         {
             CleanupRuleTriggerKind.Played => CollectPlayed(items, context, audit),
             CleanupRuleTriggerKind.NotPlayed => CollectNotPlayed(items, context, audit),
+            CleanupRuleTriggerKind.InProgress => CollectInProgress(items, context, audit),
             CleanupRuleTriggerKind.AddedAge => CollectAddedAge(items, context),
             _ => throw new NotSupportedException($"Unsupported rule trigger: {rule.Trigger.Kind}"),
         };
@@ -170,6 +171,7 @@ internal sealed class CleanupRuleMatcher(DateTime now, IPathMatcher pathMatcher,
             {
                 CleanupRuleTriggerKind.Played => CollectPlayedCandidate(item, context, null),
                 CleanupRuleTriggerKind.NotPlayed => CollectNotPlayedCandidate(item, context, null),
+                CleanupRuleTriggerKind.InProgress => CollectInProgressCandidate(item, context, null),
                 CleanupRuleTriggerKind.AddedAge => CollectAddedAgeCandidate(item, context),
                 _ => throw new NotSupportedException($"Unsupported rule trigger: {rule.Trigger.Kind}"),
             };
@@ -256,6 +258,70 @@ internal sealed class CleanupRuleMatcher(DateTime now, IPathMatcher pathMatcher,
         return new CandidateItem(item, playback);
     }
 
+    private IEnumerable<CandidateItem> CollectInProgress(
+        IEnumerable<MediaItem> items,
+        RuleEvaluationContext context,
+        CleanupAuditCollector audit)
+    {
+        foreach (var item in items)
+        {
+            if (CollectInProgressCandidate(item, context, audit) is { } candidate)
+            {
+                yield return candidate;
+            }
+        }
+    }
+
+    // The season's DateCreated is its newest episode's, so new episodes also count as recent activity.
+    // Episode play dates are not comparable to the season's Date Added, so the played-before-added filter is skipped here.
+    private CandidateItem? CollectInProgressCandidate(
+        MediaItem item,
+        RuleEvaluationContext context,
+        CleanupAuditCollector? audit)
+    {
+        var partial = new List<PlaybackState>();
+        DateTime? latest = null;
+        foreach (var state in item.Playback)
+        {
+            if (!context.UserIds.Contains(state.UserId)
+                || !state.HasUserData
+                || !state.LastPlayedDate.HasValue
+                || (context.PlaybackStartDate is not null && state.LastPlayedDate < context.PlaybackStartDate))
+            {
+                continue;
+            }
+
+            if (state.IsPartiallyPlayed)
+            {
+                partial.Add(state);
+            }
+
+            if (latest is null || state.LastPlayedDate > latest)
+            {
+                latest = state.LastPlayedDate;
+            }
+        }
+
+        if (partial.Count == 0 || latest > context.ExpirationCutoffDate || item.DateCreated > context.ExpirationCutoffDate)
+        {
+            if (audit is not null)
+            {
+                CleanupAudit.IncrementRuleAggregate(
+                    audit,
+                    context.Rule,
+                    item,
+                    CleanupAuditStage.Trigger,
+                    CleanupAuditOutcome.Rejected,
+                    $"was not started-but-unfinished by a selected user, or had playback in the last {context.Rule.Trigger.Days} day(s)");
+            }
+
+            return null;
+        }
+
+        StableSortPlaybackDescending(partial);
+        return new CandidateItem(item, partial);
+    }
+
     private static string GetPlayedTriggerRejectionReason(CleanupRuleTrigger trigger) => trigger.PlayedKeepKind switch
     {
         PlayedKeepKind.AnyUser => $"did not have played status at least {trigger.Days} day(s) old for any selected user",
@@ -309,7 +375,7 @@ internal sealed class CleanupRuleMatcher(DateTime now, IPathMatcher pathMatcher,
             }
 
             var isPlayedAfterCreated = policy.AllowDeleteIfPlayedBeforeAdded || state.LastPlayedDate >= item.DateCreated;
-            var shouldSkip = (state.IsPlayed && isPlayedAfterCreated) || state.IsWatching;
+            var shouldSkip = (state.IsPlayed && isPlayedAfterCreated) || state.IsWatching || state.IsPartiallyPlayed;
             if (context.PlaybackStartDate is null ? !shouldSkip : !(shouldSkip && state.LastPlayedDate >= context.PlaybackStartDate))
             {
                 notPlayed.Add(state);
