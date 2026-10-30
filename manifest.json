@@ -1,0 +1,44 @@
+[
+  {
+    "guid": "607fee77-97eb-41fe-bf22-26844d99ffb0",
+    "name": "Media Cleaner",
+    "description": "Rule-based media cleanup",
+    "overview": "Rule-based media cleanup",
+    "owner": "adunavolgyi",
+    "category": "General",
+    "versions": [
+      {
+        "version": "3.8.0.120000",
+        "changelog": " - ",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/adunavolgyi/jellyfin-plugin-media-cleaner/releases/download/v3.8.0/MediaCleaner-12.0.zip",
+        "checksum": "9791a46da08f3f93085405c2413e2171",
+        "timestamp": "2026-10-30T15:36:20Z"
+      },
+      {
+        "version": "3.8.0.101109",
+        "changelog": " - ",
+        "targetAbi": "10.11.9.0",
+        "sourceUrl": "https://github.com/adunavolgyi/jellyfin-plugin-media-cleaner/releases/download/v3.8.0/MediaCleaner-10.11.9.zip",
+        "checksum": "dfd75663d3362741fe7e466d35e4f49b",
+        "timestamp": "2026-10-30T15:36:20Z"
+      },
+      {
+        "version": "3.8.0.101100",
+        "changelog": " - ",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/adunavolgyi/jellyfin-plugin-media-cleaner/releases/download/v3.8.0/MediaCleaner-10.11.0.zip",
+        "checksum": "fe26f709c1b22604ee071b7b733d159d",
+        "timestamp": "2026-10-30T15:36:20Z"
+      },
+      {
+        "version": "3.8.0.101007",
+        "changelog": " - ",
+        "targetAbi": "10.10.7.0",
+        "sourceUrl": "https://github.com/adunavolgyi/jellyfin-plugin-media-cleaner/releases/download/v3.8.0/MediaCleaner-10.10.7.zip",
+        "checksum": "b08046d676f8208bad576eca2d705543",
+        "timestamp": "2026-10-30T15:36:20Z"
+      }
+    ]
+  }
+]
